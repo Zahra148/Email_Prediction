@@ -4,8 +4,6 @@ from enum import Enum
 class StrEnum(str, Enum):
     pass
 
-# ── existing (unchanged) ──────────────────────────────────────────────────────
-
 class JobStatus(StrEnum):
     QUEUED   = "QUEUED"
     RUNNING  = "RUNNING"
@@ -27,18 +25,11 @@ class EventName(StrEnum):
     RENDER_PREVIEW_READY = "RENDER_PREVIEW_READY"
     RENDER_DONE          = "RENDER_DONE"
 
-# ── Wentao's addition — keeping his name and uppercase values ─────────────────
-# Frontend already uses these uppercase values so we match his version
-
 class HealthTarget(StrEnum):
     """Typed health-target categories. Uppercase to match frontend."""
     GUT    = "GUT"
     BONE   = "BONE"
     ENERGY = "ENERGY"
-
-# ── Nayyab's addition (T003) — keeping for scoring engine ────────────────────
-# The 8 nutrient categories the scoring formula depends on.
-# Do NOT add new values — the Nutrition Breadth Score divides by 8.
 
 class NutrientCategory(StrEnum):
     FIBER             = "fiber"
