@@ -1,35 +1,9 @@
 # packages/shared/uma_shared/engines.py
-#
-# Sprint 2 — Week 2 Tasks
-# T005: Constraint Engine
-# T006: Deterministic Planning Engine
-# T008: Yield Band Logic
-# T007: AI Usage Boundary (config at bottom)
-#
-# Owner: Nayyab Zahra (ML / Backend Engineer)
-# All logic is fully deterministic — no AI, no randomness.
-# Same inputs always produce same outputs.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 import math
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# T005 — CONSTRAINT ENGINE
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-# ── USDA Zone Lookup Table ────────────────────────────────────────────────────
-# Maps latitude ranges to USDA hardiness zones.
-# Source: USDA Plant Hardiness Zone Map (standard agronomic reference)
-# Format: (min_lat, max_lat) → zone_string
-#
-# Why a lookup table and not an API?
-# The Crop DB doesn't exist yet and external APIs aren't set up.
-# This table covers all continental US + common international zones
-# and gives ≥85% accuracy which is the T005 KPI.
 
 _ZONE_TABLE: list[tuple[float, float, str]] = [
     (50.0,  90.0, "3a"),   # Northern Canada, Alaska
@@ -62,14 +36,6 @@ def _get_usda_zone(lat: float) -> str:
     return "11a"  # default for anything below 0 lat (equatorial)
 
 
-# ── Sun Hours Calculation ─────────────────────────────────────────────────────
-# Calculates estimated daily sun hours based on:
-#   - Latitude (how far from equator)
-#   - Month (season affects day length)
-#
-# Formula uses astronomical day length calculation — standard agronomic method.
-# This is deterministic math, no API needed.
-
 def _calculate_sun_hours(lat: float, month: int) -> float:
     """
     Estimates daily usable sun hours for a given location and month.
@@ -85,25 +51,20 @@ def _calculate_sun_hours(lat: float, month: int) -> float:
         _calculate_sun_hours(37.7, 6)  → ~9.8 hrs  (San Francisco, June)
         _calculate_sun_hours(37.7, 12) → ~5.2 hrs  (San Francisco, December)
     """
-    # Day of year for middle of each month
     _MONTH_DAY = [15, 45, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349]
     day_of_year = _MONTH_DAY[month - 1]
 
-    # Solar declination angle — how tilted Earth is toward/away from sun
     declination = 23.45 * math.sin(math.radians((360 / 365) * (day_of_year - 81)))
 
-    # Hour angle at sunrise/sunset
     lat_rad = math.radians(lat)
     dec_rad = math.radians(declination)
 
     cos_hour_angle = -math.tan(lat_rad) * math.tan(dec_rad)
 
-    # Clamp to valid range to avoid math errors at extreme latitudes
     cos_hour_angle = max(-1.0, min(1.0, cos_hour_angle))
 
     hour_angle = math.degrees(math.acos(cos_hour_angle))
 
-    # Day length in hours
     day_length = (2 * hour_angle) / 15
 
     # Usable sun = ~75% of day length (accounting for clouds, morning/evening low angle)
@@ -111,21 +72,12 @@ def _calculate_sun_hours(lat: float, month: int) -> float:
 
     return usable_sun
 
-
-# ── Microclimate Modifiers ────────────────────────────────────────────────────
-# User answers a simple onboarding question about their garden's shade situation.
-# This adjusts the base sun hours down by a percentage.
-
 _SHADE_MODIFIERS: dict[str, float] = {
     "none":     1.0,   # No shade — full sun
     "partial":  0.75,  # Some shade from trees or nearby structures
     "heavy":    0.50,  # Significant shade — building or dense trees
 }
 
-
-# ── GardenState — the output of T005 ─────────────────────────────────────────
-# This is what the Planning Engine (T006) reads.
-# Everything downstream depends on this object.
 
 @dataclass
 class GardenState:
@@ -152,9 +104,6 @@ class GardenState:
     month:          int
     garden_area_m2: float
 
-
-# ── Main T005 Function ────────────────────────────────────────────────────────
-
 def compute_garden_state(
     lat:            float,
     lon:            float,
@@ -162,33 +111,13 @@ def compute_garden_state(
     shade_level:    str = "none",
     garden_area_m2: float = 10.0,
 ) -> GardenState:
-    """
-    T005 — Constraint Engine
-    Computes the full environmental profile for a garden location.
 
-    Args:
-        lat:            Latitude (e.g. 37.7 for San Francisco)
-        lon:            Longitude (e.g. -122.4 for San Francisco)
-        month:          Current month as int (1-12)
-        shade_level:    "none", "partial", or "heavy"
-        garden_area_m2: Garden size in square meters
+       zone = _get_usda_zone(lat)
 
-    Returns:
-        GardenState object ready for the Planning Engine
-
-    Example:
-        state = compute_garden_state(37.7, -122.4, 6, "partial", 12.0)
-        state.usda_zone     → "8a"
-        state.adjusted_sun  → 7.4
-    """
-    # Step 1 — get USDA zone from latitude
-    zone = _get_usda_zone(lat)
-
-    # Step 2 — calculate raw sun hours from lat + month
+    
     raw_sun = _calculate_sun_hours(lat, month)
 
-    # Step 3 — apply shade modifier
-    modifier = _SHADE_MODIFIERS.get(shade_level, 1.0)
+        modifier = _SHADE_MODIFIERS.get(shade_level, 1.0)
     adjusted_sun = round(raw_sun * modifier, 1)
 
     return GardenState(
@@ -201,23 +130,6 @@ def compute_garden_state(
         month          = month,
         garden_area_m2 = garden_area_m2,
     )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# T006 — DETERMINISTIC PLANNING ENGINE
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-# ── Crop Database ─────────────────────────────────────────────────────────────
-# Static crop knowledge base.
-# Will be replaced by real DB query when Wentao sets up the Crop table.
-# Each crop has:
-#   usda_zones    — which zones it can survive in
-#   min_sun       — minimum daily sun hours needed
-#   nutrient_tags — which of the 8 NutrientCategories it contains
-#   spacing_m2    — how much space one plant needs
-#   optimal_sun   — ideal sun hours (used in yield calculation)
-#   base_yield_kg — kg per plant per season
 
 _CROP_DB: list[dict] = [
     {
@@ -343,17 +255,12 @@ _CROP_DB: list[dict] = [
 ]
 
 
-# ── Goal → Priority Nutrients ─────────────────────────────────────────────────
-# Same mapping as in schemas.py — kept here so engines.py works standalone.
-
 _GOAL_NUTRIENTS: dict[str, list[str]] = {
     "GUT":    ["fiber", "prebiotic_compounds", "polyphenols"],
     "ENERGY": ["magnesium", "vitamin_c", "folate"],
     "BONE":   ["vitamin_k", "magnesium", "omega3_precursors"],
 }
 
-
-# ── Scored Crop — internal result object ──────────────────────────────────────
 
 @dataclass
 class ScoredCrop:
@@ -365,9 +272,6 @@ class ScoredCrop:
     spacing_m2:     float
     base_yield_kg:  float
     optimal_sun:    float
-
-
-# ── Main T006 Function ────────────────────────────────────────────────────────
 
 def generate_crop_plan(
     garden_state: GardenState,
@@ -564,3 +468,4 @@ AI_BOUNDARY_MAP: dict[str, dict] = {
 # Hard cost ceiling per user session
 # No session may exceed this regardless of features used
 SESSION_AI_COST_CEILING_USD = 0.05  # 5 cents per session max
+
